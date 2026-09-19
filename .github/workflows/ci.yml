@@ -33,7 +33,7 @@ jobs:
       - name: Unit + widget tests
         # `screenshots` renders PNGs for design review; it asserts nothing.
         run: flutter test --exclude-tags screenshots --coverage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: coverage
           path: coverage/lcov.info
