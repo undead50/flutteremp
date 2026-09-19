@@ -1,0 +1,35 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+    - ios/**
+  language:
+    strict-casts: true
+    strict-inference: true
+    strict-raw-types: true
+  errors:
+    # Never let a missing await or an unhandled Future slip through review.
+    unawaited_futures: error
+    avoid_print: error
+
+formatter:
+  page_width: 100
+
+linter:
+  rules:
+    # Private *named* parameters cannot be initializing formals in Dart, so this
+    # lint only produces noise for the `remote: _remote` constructor pattern.
+    prefer_initializing_formals: false
+    always_use_package_imports: true
+    avoid_dynamic_calls: true
+    avoid_print: true
+    avoid_slow_async_io: true
+    cancel_subscriptions: true
+    close_sinks: true
+    prefer_final_locals: true
+    prefer_const_declarations: true
+    prefer_single_quotes: true
+    unawaited_futures: true
+    use_super_parameters: true

@@ -1,0 +1,9 @@
+{
+  "APP_ENV": "dev",
+  "USE_MOCK_BACKEND": "true",
+  "API_BASE_URL": "https://api.dev.relay.example",
+  "ENABLE_LOGGING": "true",
+  "PRIVACY_URL": "https://relay.example/privacy",
+  "HELPDESK_URL": "https://relay.example/helpdesk",
+  "TRUST_CENTER_URL": "https://relay.example/trust"
+}

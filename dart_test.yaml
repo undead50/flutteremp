@@ -1,0 +1,5 @@
+tags:
+  # Renders each screen to build/design_check/*.png for visual comparison with
+  # the Figma frames. Not part of the regular suite: run with
+  #   flutter test --tags screenshots
+  screenshots:
