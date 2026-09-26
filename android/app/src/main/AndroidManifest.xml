@@ -6,7 +6,7 @@
          - cleartext HTTP is refused at the platform level (see network_security_config.xml)
          - app data is excluded from cloud/adb backups so cached session data never leaves the device -->
     <application
-        android:label="Relay"
+        android:label="EBL Relay"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:allowBackup="false"

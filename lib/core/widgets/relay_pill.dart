@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:relay/core/theme/app_metrics.dart';
+import 'package:relay/core/theme/app_palette.dart';
 import 'package:relay/core/theme/app_typography.dart';
 
 /// Rounded label used for badges, chips, counters and status tags.

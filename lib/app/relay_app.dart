@@ -23,7 +23,7 @@ class RelayApp extends ConsumerWidget {
     final prefs = ref.watch(preferencesControllerProvider);
 
     return MaterialApp.router(
-      title: 'Relay',
+      title: 'EBL Relay',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light(highContrast: prefs.highContrast),
       darkTheme: AppTheme.dark(highContrast: prefs.highContrast),

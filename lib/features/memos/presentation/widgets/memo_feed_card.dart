@@ -197,7 +197,7 @@ class _HighlightChip extends StatelessWidget {
         13.33,
         12.67,
         context.palette.amber,
-        context.palette.onPeachStrong,
+        context.palette.onAmber,
       ),
     };
     return RelayPill(

@@ -123,6 +123,37 @@ void main() {
     });
   });
 
+  group('Colour roles that must survive the theme change', () {
+    for (final mode in <String>['light', 'dark']) {
+      testWidgets('secondary text keeps its muted colour ($mode)', (tester) async {
+        final harness = await TestHarness.create(
+          preferences: <String, Object>{'pref.appearance': mode},
+        );
+        await pumpRelayApp(tester, harness, size: _tall);
+
+        final palette = mode == 'dark' ? AppPalette.dark : AppPalette.light;
+        // Footer links on Welcome are `outline` grey, not full-strength body text.
+        for (final link in <String>['Privacy Charter', 'IT Helpdesk', 'Trust Center']) {
+          expect(tester.widget<Text>(find.text(link)).style!.color, palette.outline, reason: link);
+        }
+      });
+
+      testWidgets('feed chips keep readable ink on their fills ($mode)', (tester) async {
+        final harness = await TestHarness.create(
+          signedIn: true,
+          preferences: <String, Object>{'pref.appearance': mode},
+        );
+        await pumpRelayApp(tester, harness, size: _tall);
+
+        final palette = mode == 'dark' ? AppPalette.dark : AppPalette.light;
+        // Amber fill is identical in both themes, so its label must be the same dark ink.
+        expect(tester.widget<Text>(find.text(r'$14,200 Est.')).style!.color, palette.onAmber);
+        // File size next to an attachment name is muted.
+        expect(tester.widget<Text>(find.text('2.4 MB')).style!.color, palette.outline);
+      });
+    }
+  });
+
   group('SvgAsset dark tinting', () {
     Future<ColorFilter?> filterFor(WidgetTester tester, ThemeData theme, Widget icon) async {
       await pumpWidgetInApp(tester, Center(child: icon), theme: theme);
