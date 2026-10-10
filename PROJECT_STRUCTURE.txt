@@ -1,0 +1,424 @@
+RELAY — PROJECT STRUCTURE & HOW IT WORKS
+=========================================
+(Flutter app, package name `relay`, product-named "EBL Relay" in the shell
+chrome/icon only — nothing else in the codebase renamed.)
+
+WHAT IT IS
+----------
+Executive memo approvals for mobile: sign in, see a feed of memos waiting on
+your sign-off, open one, approve / request revision / decline, manage a
+sign-off proxy and app preferences in Settings. Built from a Figma design
+("Logo STA"). 5 real screens — Welcome, Sign-in, Memos feed, Memo detail,
+Settings — plus Modules/Activity tabs that are stubbed empty states (no Figma
+frames for them).
+
+
+1. HOW THE APP BOOTS
+---------------------
+  lib/main.dart
+      -> calls bootstrap() and nothing else. Every build flavor (dev /
+         staging / prod) goes through this one entry point.
+
+  lib/bootstrap.dart
+      1. WidgetsFlutterBinding.ensureInitialized()
+      2. AppConfig.fromEnvironment() reads the --dart-define-from-file
+         values compiled into the binary (APP_ENV, API_BASE_URL,
+         USE_MOCK_BACKEND, ENABLE_LOGGING, PRIVACY_URL, HELPDESK_URL,
+         TRUST_CENTER_URL) and VALIDATES them. Missing/invalid config
+         throws ConfigurationException instead of starting with unsafe
+         defaults ("fail closed"). If that happens, runApp shows a plain
+         "Relay is not configured" screen and stops — this is why the app
+         MUST be launched with a config file, e.g.
+         `flutter run --dart-define-from-file=config/dev.json`.
+      3. Installs global error handlers (FlutterError.onError,
+         PlatformDispatcher.onError) that log but never leak stack traces
+         into the release UI (release ErrorWidget is a neutral message).
+      4. Loads SharedPreferences.
+      5. runApp(ProviderScope(...RelayApp...)) with appConfigProvider and
+         sharedPreferencesProvider overridden to the real instances — this
+         is the one place the Riverpod graph gets its real inputs.
+
+  lib/app/relay_app.dart (RelayApp, a ConsumerWidget)
+      - Watches routerProvider and preferencesControllerProvider.
+      - Builds MaterialApp.router with AppTheme.light()/dark(), themeMode
+        driven by the user's Appearance preference (system/light/dark).
+      - Wraps the tree in a status/nav-bar color matcher (_SystemBars) and a
+        text-scale combiner (_TextScaleBoundary: OS scale x in-app preset,
+        clamped 0.8x-2x) so both platform accessibility and the in-app
+        "Standard/Large/Extra Large" setting apply together.
+
+
+2. DIRECTORY MAP
+-----------------
+lib/
+  main.dart                  entry point, see above
+  bootstrap.dart              config validation + error handlers + runApp
+
+  app/                        app shell: routing + navigation chrome
+    router/
+      app_router.dart         GoRouter instance + the auth redirect
+      route_paths.dart        every route path as a constant, in one file
+    shell/
+      main_shell.dart          the 4-tab IndexedStack shell (Memos / Modules
+                                / Activity / Settings), keeps each tab's
+                                scroll position when you switch away
+      relay_bottom_nav.dart    the pill-style bottom nav bar
+      placeholder_tab_screen.dart  empty-state for Modules/Activity
+      system_screens.dart      SplashScreen, NotFoundScreen
+
+  core/                        shared infrastructure, imported by every
+                                feature but importing none of them
+    config/
+      app_config.dart          AppConfig — parses & validates the 7
+                                --dart-define keys, enforces HTTPS, blocks
+                                the mock backend outside dev
+    error/
+      failure.dart              sealed Failure hierarchy: one subclass per
+                                failure kind (NetworkFailure,
+                                InvalidCredentialsFailure, ServerFailure,
+                                ...), each carrying a fixed, user-safe
+                                message string. Also AppException (wraps a
+                                Failure to throw it) and
+                                MalformedResponseException.
+      result.dart                sealed Result<T> = Success<T> | Err<T>.
+                                Returned by repositories instead of
+                                throwing; `.when(success:, failure:)` forces
+                                exhaustive handling at every call site.
+    network/
+      api_client.dart           builds the Dio instance: base URL, timeouts,
+                                interceptors, HTTPS enforcement
+      auth_interceptor.dart     attaches the bearer token, retries a 401
+                                once after a silent token refresh, then
+                                signs the session out via SessionEvents
+      dio_error_mapper.dart     DioException -> Failure (timeout, offline,
+                                4xx/5xx, malformed body, etc.)
+      guarded_call.dart          guardedCall(() => ...) runs a data-source
+                                call and funnels EVERY exception type
+                                (AppException, DioException,
+                                MalformedResponseException, FormatException,
+                                anything else) into a Result<T>. Nothing
+                                throws past this point.
+      json_reader.dart           JsonObject: defensive typed field reads out
+                                of decoded JSON maps; throws
+                                MalformedResponseException(field) on a bad
+                                shape instead of a raw type-cast crash
+      api_endpoints.dart         REST path constants
+    security/
+      token_store.dart           SecureTokenStore — tokens in iOS
+                                Keychain/Android Keystore only
+                                (first_unlock_this_device), never in prefs
+      biometric_authenticator.dart  Face ID / fingerprint unlock wrapper
+      validators.dart            email/password rules, SafeId (allow-lists
+                                deep-link ids before they're used)
+      input_sanitizer.dart       strips control / zero-width / bidi
+                                characters from user text
+      https_url.dart             parseHttpsUrl() — rejects non-https,
+                                embedded credentials, query/fragment
+      external_link_launcher.dart  opens URLs only if they parsed as https
+      id_generator.dart          SecureIdGenerator — Idempotency-Key values
+    theme/
+      app_palette.dart           AppPalette: every named color, light + dark
+                                sets, as a ThemeExtension. Read via
+                                `context.palette.xxx`.
+      app_typography.dart        AppTypography: the full type scale
+                                (Epilogue for headings/metrics, Plus Jakarta
+                                Sans for everything else) as TextStyle
+                                constants with no baked-in color. Read via
+                                `context.text.xxx` for the secondary-colored
+                                body variants.
+      app_metrics.dart           AppRadii, AppLayout (max content width,
+                                header/nav heights, gutters), AppShadows
+                                (every box-shadow recipe from Figma)
+      app_theme.dart              AppTheme.light()/dark() assembles a full
+                                Flutter ThemeData from the palette +
+                                typography, plus RelayAccessibilityTheme
+                                (the "High Contrast Borders" toggle)
+    widgets/                     the reusable design-system component
+                                library: RelayButton, RelayCard, RelayPill,
+                                RelayTextField, RelayDialogs, RelaySnackbar,
+                                RelayToggles (switch/checkbox), SvgAsset
+                                (tints a Figma-exported glyph per theme),
+                                state_views.dart (loading/empty/error
+                                states used everywhere), responsive_body.dart
+                                (centers content at the 448pt column cap)
+    assets/
+      app_assets.dart            typed constants for every bundled icon/
+                                image path (AppIcons, IconTone, darkTones
+                                map) — screens never hardcode a path string
+    providers/
+      core_providers.dart        the composition root: AppConfig,
+                                SharedPreferences, AppLogger, clock,
+                                IdGenerator, TokenStore,
+                                BiometricAuthenticator,
+                                ExternalLinkLauncher, SessionEvents, and the
+                                shared Dio instance. Every feature's
+                                provider file builds on these.
+    logging/
+      app_logger.dart             logs event TYPES, not payloads; redacts
+                                emails/tokens; silent in prod
+    platform/
+      haptics.dart                light wrapper around HapticFeedback
+    utils/
+      formatters.dart              money/date/initials formatting helpers
+
+  features/                     one folder per feature, each split into
+                                three layers (see section 4):
+    auth/        sign-in, session, biometric unlock, SSO stub
+    onboarding/  the Welcome screen (pre-auth marketing/entry screen)
+    memos/       the feed, memo detail, approve/revision/decline flow
+    settings/    profile, sign-off proxy, appearance, text size, modules
+
+
+3. NAVIGATION
+--------------
+route_paths.dart: /splash, /welcome, /login, /memos (+ /memos/:memoId),
+/modules, /activity, /settings.
+
+app_router.dart builds one GoRouter with a `redirect` callback that is the
+ENTIRE auth gate for the UI (not a security boundary — see section 7):
+
+  sessionControllerProvider is AsyncLoading  -> force /splash
+  sessionControllerProvider has no user      -> allow only /welcome,/login,
+                                                 else send to /welcome
+  sessionControllerProvider has a user       -> if on /welcome,/login or
+                                                 /splash, send to /memos
+  otherwise                                   -> no redirect
+
+Routes:
+  /splash                     SplashScreen (shown while the stored session
+                                is being restored)
+  /welcome                    WelcomeScreen — first screen an unauthenticated
+                                user sees; its "Sign in" button does
+                                context.push('/login')
+  /login                      LoginScreen — the actual email/password (+
+                                biometric quick-unlock, SSO) form
+  StatefulShellRoute.indexedStack (MainShell, only reachable once signed in)
+    /memos                    MemosFeedScreen
+      /memos/:memoId           MemoDetailScreen — pushed on the ROOT
+                                navigator (parentNavigatorKey), so it
+                                covers the bottom nav like a full-screen
+                                page; :memoId is validated with SafeId
+                                before use (unknown/malformed id -> 404)
+    /modules                  PlaceholderTabScreen (empty state)
+    /activity                 PlaceholderTabScreen (empty state)
+    /settings                 SettingsScreen
+
+Each StatefulShellBranch keeps its own navigation stack + scroll offset via
+IndexedStack, so switching tabs never rebuilds/reloads a screen.
+
+
+4. THE PER-FEATURE LAYERING (Clean Architecture, feature-first)
+------------------------------------------------------------------
+Every feature folder (auth, memos, settings; onboarding has no logic of its
+own) is split into three layers with a ONE-WAY dependency rule:
+
+        presentation --> domain <-- data
+
+`domain` imports no Flutter/Dio/storage code at all — it is pure Dart
+business rules and types, so it is trivially unit-testable and does not care
+whether the backend is real or mocked.
+
+  domain/
+    entities/        plain Dart model classes (UserProfile, MemoFeed,
+                      MemoDetail, ApprovalDecision, SignOffProxy, ...)
+    repositories/     ABSTRACT repository interfaces (e.g. MemoRepository)
+                      — the contract `data/` must implement
+    usecases/         one class per business action (SignInWithCredentials,
+                      GetMemoFeed, SubmitMemoDecision, ...). This is where
+                      RULES live, e.g.:
+                        - a decline/revision note must be 3-500 characters
+                        - the last active module in Settings can't be
+                          turned off
+                        - ids are validated before being used
+                      Each usecase is a thin callable wrapping one
+                      repository method plus its validation.
+
+  data/
+    dtos/             *Dto classes that parse a raw JSON map (via
+                      JsonObject) into a typed, defensively-checked shape,
+                      then convert to a domain entity. Money is parsed as
+                      integer cents. Unknown optional enum values are
+                      skipped rather than failing the whole payload;
+                      malformed REQUIRED fields throw
+                      MalformedResponseException.
+    datasources/      two implementations per contract:
+                        *_remote_data_source.dart  -> real HTTP calls via
+                                                       the shared Dio
+                        *_mock_data_source.dart    -> in-memory canned data
+                                                       with simulated
+                                                       latency, used when
+                                                       USE_MOCK_BACKEND=true
+    repositories/      *RepositoryImpl — implements the domain interface,
+                      wraps every data-source call in `guardedCall(...)`
+                      so nothing above this layer ever sees a raw
+                      exception; always returns Result<T>.
+
+  presentation/
+    providers/        Riverpod wiring for this feature:
+                        - a Provider building the data source (picks mock
+                          vs. remote by reading appConfigProvider)
+                        - a Provider building the repository
+                        - a Provider per use case
+                        - one or more Notifier/AsyncNotifier classes that
+                          hold UI state and call use cases, converting
+                          Result<T> into AsyncValue<T> (success) or
+                          AsyncError (failure.message) for widgets to watch
+    screens/           full-page widgets, composed from...
+    widgets/           ...feature-specific presentational widgets (no
+                      business logic — they call the controller and render
+                      whatever state it reports)
+
+Concrete example — the "approve a memo" flow, end to end:
+  1. User taps Approve in memo_feed_card.dart or detail_content_cards.dart
+  2. MemoDecisionFlow.approve() (memo_decision_flow.dart) shows a confirm
+     dialog, then calls
+     ref.read(memoDecisionControllerProvider.notifier).decide(...)
+  3. MemoDecisionController (memo_providers.dart) calls the
+     SubmitMemoDecision usecase, which calls MemoRepository.submitDecision,
+     implemented by MemoRepositoryImpl, which calls the mock or remote
+     MemoDataSource wrapped in guardedCall — an Idempotency-Key header
+     (from SecureIdGenerator) prevents a double-tap from double-approving.
+  4. The Result<void> comes back up through every layer unchanged.
+  5. MemoDecisionFlow._report() turns Success into a green RelaySnackbar
+     and Err into a red one showing failure.message (a fixed, user-safe
+     string — never raw server/exception text, see failure.dart).
+  6. memoFeedControllerProvider.autoDispose is invalidated so the feed
+     re-fetches and the memo disappears from the pending list.
+
+This Result -> AsyncValue -> widget pattern, and the
+mock-vs-remote-by-config switch in each *_providers.dart, repeats
+identically for auth (sign in / restore session / biometric unlock) and
+settings (profile, sign-off proxy, preferences).
+
+
+5. STATE MANAGEMENT & DEPENDENCY INJECTION
+---------------------------------------------
+Riverpod everywhere, no code generation (hand-written Provider /
+NotifierProvider / AsyncNotifierProvider declarations).
+
+  - core/providers/core_providers.dart is the composition root: it is the
+    ONLY place that constructs environment-specific singletons (Dio,
+    TokenStore, logger, etc.), and bootstrap.dart is the only place that
+    overrides the two providers that need a real runtime instance
+    (AppConfig, SharedPreferences).
+  - Every feature's `*_providers.dart` builds its own graph on top of
+    core_providers — datasource -> repository -> usecases -> controller.
+  - Swapping mock vs. real backend is a single provider lookup
+    (`ref.watch(appConfigProvider).useMockBackend`), never an if/else
+    scattered through the UI.
+  - Tests override providers (ProviderScope(overrides: [...])) instead of
+    mocking globals — see test/helpers/test_harness.dart.
+
+
+6. THEMING / DESIGN SYSTEM
+------------------------------
+  AppPalette (ThemeExtension)  - every semantic color, light + dark, read as
+                                 `context.palette.background`,
+                                 `context.palette.brand`, etc. No widget
+                                 hardcodes a Color() literal for brand UI.
+  AppTypography                - the full type scale as named TextStyle
+                                 constants (titleAuth, headline, label14,
+                                 caption, body styles, ...), colorless by
+                                 default so the same style works in both
+                                 themes; `context.text.xxx` gives the
+                                 secondary-colored variants.
+  AppMetrics (AppRadii/AppLayout/AppShadows) - every corner radius, layout
+                                 constant and box-shadow recipe used in the
+                                 app, pulled from the Figma export.
+  AppTheme.light()/dark()      - assembles a Flutter ThemeData from the
+                                 above, plus the RelayAccessibilityTheme
+                                 extension (the "High Contrast Borders"
+                                 setting, read by RelayCard/text fields to
+                                 draw a visible border when on).
+  core/widgets/*                - the shared component library screens are
+                                 built out of (buttons, cards, pills, text
+                                 fields, dialogs, snackbars, toggles, the
+                                 SvgAsset icon wrapper with automatic dark-
+                                 mode tinting via AppIcons.darkTones).
+
+Fonts: Epilogue (headings/metrics) and Plus Jakarta Sans (everything else),
+both bundled as variable fonts (OFL-licensed, no runtime font fetching).
+
+
+7. ERROR HANDLING & SECURITY POSTURE
+----------------------------------------
+  - Failure (sealed class) + Result<T> (sealed success/err) + guardedCall
+    together guarantee no raw exception or server error text ever reaches
+    a widget; every UI surface gets a fixed, human-readable message.
+  - The client is explicitly NOT a trust boundary: route guards in
+    app_router.dart only decide which screens to SHOW. Every API call is
+    still authorized server-side; a 401 triggers one silent refresh then
+    signs the session out (auth_interceptor.dart + SessionEvents), a 403
+    is surfaced and never bypassed.
+  - AppConfig fails closed: invalid/missing config refuses to start rather
+    than falling back to insecure defaults; the mock backend is only
+    permitted when APP_ENV=dev; API_BASE_URL must be https with no
+    embedded credentials or query string.
+  - Tokens live only in Keychain/Keystore via SecureTokenStore, never in
+    SharedPreferences.
+  - Deep-link / path ids are allow-listed (SafeId) before use; free text is
+    run through input_sanitizer.dart.
+  - Idempotency-Key headers stop double-submits on sign-off actions;
+    confirm dialogs gate every approval/decline; buttons lock while a
+    request is in flight.
+  See README.md's OWASP table for the full A01-A10 mapping.
+
+
+8. CONFIGURATION
+--------------------
+Nothing is read from the environment at runtime — everything is compiled in
+via `--dart-define-from-file=config/<env>.json`:
+
+  config/dev.json       APP_ENV=dev,     USE_MOCK_BACKEND=true  (offline,
+                          any email + 8+ char password signs in)
+  config/staging.json    APP_ENV=staging, USE_MOCK_BACKEND=false (needs a
+                          real https API_BASE_URL)
+  config/prod.json       APP_ENV=prod,    USE_MOCK_BACKEND=false (mock is
+                          refused outright by AppConfig.parse in prod)
+
+config/*.local.json is git-ignored for private overrides. Run:
+  flutter run --dart-define-from-file=config/dev.json
+
+
+9. TESTS
+------------
+  test/unit/            domain + core logic, no widgets (config parsing,
+                          formatters, security utils, network mapping,
+                          palette, and one unit-test file per feature)
+  test/widget/           screens_test.dart, critical_flow_test.dart (full
+                          sign-in -> feed -> approve flow),
+                          design_system_test.dart, theming_test.dart (light/
+                          dark color-role assertions — this is the file
+                          with the custom "colour roles that must survive a
+                          theme change" checks)
+  test/design_parity/    render_screens_test.dart — renders each screen to
+                          build/design_check/*.png for side-by-side
+                          comparison against the Figma export (tag:
+                          "screenshots", excluded from the normal run)
+  test/helpers/           test_harness.dart (builds a ProviderScope with
+                          every provider overridden to fakes/mocks) and
+                          fakes.dart
+  integration_test/       app_flow_test.dart — real on-device/simulator
+                          run of the full app
+
+  flutter analyze                                 strict-casts/inference
+  flutter test --exclude-tags screenshots          unit + widget tests
+  flutter test --tags screenshots                  design-parity renders
+  flutter test integration_test --dart-define-from-file=config/dev.json
+  tool/security_check.sh                           dependency + config gate
+
+
+10. KNOWN GAPS (see README.md "Known gaps" for the full list)
+------------------------------------------------------------------
+  - Settings screen icons are Material stand-ins (Figma quota ran out
+    before its design context was fetched); Marcus Brody avatar falls back
+    to initials.
+  - SSO reports "not available" until a tenant identity provider is wired
+    up (SignInWithSso usecase exists but has no backend to call).
+  - "Swipe to batch" and Search are present visually but have no specified
+    behavior yet.
+  - Offline outbox is a documented no-op — every write is online-only.
+  - No certificate pinning, no localization, light theme design only (dark
+    palette values are derived, not from Figma).
+  - Android build is currently blocked locally by a JDK 8/17 mismatch (see
+    the Claude memory notes on this machine for the exact fix).

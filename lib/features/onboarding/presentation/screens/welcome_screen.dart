@@ -213,16 +213,14 @@ class _BrandBlock extends StatelessWidget {
             ),
             child: const Padding(
               padding: EdgeInsets.all(16),
-              child: Row(
-                children: <Widget>[
-                  Image(
-                    image: AssetImage(AppImages.relayEmblem),
-                    width: 112,
-                    height: 112,
-                    fit: BoxFit.cover,
-                    semanticLabel: 'Relay',
-                  ),
-                ],
+              child: Center(
+                child: Image(
+                  image: AssetImage(AppImages.relayEmblem),
+                  width: 112,
+                  height: 112,
+                  fit: BoxFit.fitWidth,
+                  semanticLabel: 'Relay',
+                ),
               ),
             ),
           ),
